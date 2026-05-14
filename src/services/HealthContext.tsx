@@ -31,10 +31,10 @@ export const HealthProvider: React.FC<{ children: ReactNode }> = ({ children }) 
     try {
       if (role === UserRole.PATIENT) {
         const [v, a, appt, med] = await Promise.all([
-          MockBackend.getPatientHistory(userId),
+          BackendAPI.getMyMetrics().catch(() => []),
           BackendAPI.getAlerts().catch(() => []),
-          MockBackend.getAppointments(userId, UserRole.PATIENT),
-          MockBackend.getMedications(userId)
+          BackendAPI.getAppointments().catch(() => []),
+          BackendAPI.getMedicationOrders({ active: 'true' }).catch(() => [])
         ]);
         setVitals(v);
         setAlerts(a as any);
@@ -43,8 +43,8 @@ export const HealthProvider: React.FC<{ children: ReactNode }> = ({ children }) 
       } else if (role === UserRole.DOCTOR) {
         const [a, appt, pats] = await Promise.all([
           BackendAPI.getAlerts().catch(() => []),
-          MockBackend.getAppointments(userId, UserRole.DOCTOR),
-          MockBackend.getAssignedPatients(userId)
+          BackendAPI.getAppointments().catch(() => []),
+          BackendAPI.getAssignedPatients().catch(() => [])
         ]);
         setAlerts(a as any);
         setAppointments(appt);
@@ -60,14 +60,14 @@ export const HealthProvider: React.FC<{ children: ReactNode }> = ({ children }) 
     if (user) {
       fetchAllData(user.id, user.role);
       
-      // Subscribe to real-time updates from MockBackend
-      const unsubscribe = MockBackend.subscribe(() => {
-        fetchAllData(user.id, user.role);
-      });
+      // Subscribe to real-time updates from BackendAPI via Socket.io
+      const unsubAppt = BackendAPI.onAppointmentUpdated(() => refreshData());
+      const unsubApptCreated = BackendAPI.onAppointmentCreated(() => refreshData());
 
-      const interval = setInterval(() => fetchAllData(user.id, user.role), 10000); // Poll less frequently if subscribed
+      const interval = setInterval(() => fetchAllData(user.id, user.role), 30000); // Poll less frequently
       return () => {
-        unsubscribe();
+        unsubAppt();
+        unsubApptCreated();
         clearInterval(interval);
       };
     }
@@ -102,7 +102,20 @@ export const HealthProvider: React.FC<{ children: ReactNode }> = ({ children }) 
   };
 
   useEffect(() => {
-    setIsLoading(false);
+    const initSession = async () => {
+      try {
+        const currentUser = await BackendAPI.getCurrentUser();
+        if (currentUser) {
+          setUser(currentUser as any);
+        }
+      } catch (err) {
+        console.log("No valid session found");
+      } finally {
+        setIsLoading(false);
+      }
+    };
+    
+    initSession();
   }, []);
 
   return (

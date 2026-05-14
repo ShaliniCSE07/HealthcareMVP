@@ -7,6 +7,7 @@ import { MockBackend } from './services/mockBackend';
 import { BackendAPI, setToken, getToken } from './services/apiClient';
 import { AppErrorBoundary } from './components/common/AppErrorBoundary';
 import { AnimatePresence, motion } from 'framer-motion';
+import { Toaster } from 'sonner';
 
 // Lazy loaded pages
 import LandingPage from './pages/new/Landing';
@@ -21,6 +22,7 @@ const ChatPage = lazy(() => import('./pages/new/ChatPage'));
 const ConsultPage = lazy(() => import('./pages/new/ConsultPage'));
 const PassportPage = lazy(() => import('./pages/new/PassportPage'));
 const ReportAnalysisPage = lazy(() => import('./pages/new/ReportAnalysis'));
+const EmergencyPage = lazy(() => import('./pages/new/EmergencyPage'));
 
 const SymptomScreening = lazy(() => import('./components/features/SymptomScreening').then((m) => ({ default: m.SymptomScreening })));
 const PatientDashboard = lazy(() => import('./pages/new/PatientDashboard'));
@@ -46,19 +48,7 @@ function AppContent() {
   const navigate = useNavigate();
 
   useEffect(() => {
-    // Rehydrate session
-    const token = getToken();
-    if (token) {
-      BackendAPI.getCurrentUser()
-        .then(u => {
-          setUser(u as User);
-          BackendAPI.getSocket();
-        })
-        .catch(() => {
-          setToken(null);
-          setUser(null);
-        });
-    }
+    // Redundant rehydration removed as HealthContext handles it now
   }, [setUser]);
 
   useEffect(() => {
@@ -90,6 +80,8 @@ function AppContent() {
           {/* Public Routes */}
           <Route path="/" element={<LandingPage />} />
           <Route path="/login" element={<Login />} />
+          <Route path="/signup" element={<Auth mode="signup" />} />
+          <Route path="/emergency/:id" element={<EmergencyPage />} />
 
           {/* Protected App Routes */}
           <Route path="/dashboard" element={
@@ -123,6 +115,7 @@ function AppContent() {
 function App() {
   return (
     <BrowserRouter>
+      <Toaster position="top-center" richColors theme="dark" />
       <HealthProvider>
         <AppErrorBoundary>
           <AppContent />

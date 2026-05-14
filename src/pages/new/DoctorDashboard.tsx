@@ -5,17 +5,39 @@ import { RiskBadge } from "@/components/carex/RiskBadge";
 import { AnimatedCounter } from "@/components/carex/AnimatedCounter";
 import { NeonButton } from "@/components/carex/NeonButton";
 import { useHealth } from "@/services/HealthContext";
+import { BackendAPI } from "@/services/apiClient";
+import { useState, useEffect } from "react";
 
 const DoctorDashboard = () => {
   const { user } = useHealth();
 
-  const patients = [
-    { name: "Sarah Adams", id: "P-1024", age: 54, condition: "Hypertension", risk: "high" as const, lastSeen: "10 min ago" },
-    { name: "Marcus Lee", id: "P-1025", age: 38, condition: "Type 2 Diabetes", risk: "medium" as const, lastSeen: "1 hr ago" },
-    { name: "Elena Vasquez", id: "P-1026", age: 67, condition: "Atrial Fibrillation", risk: "high" as const, lastSeen: "2 hr ago" },
-    { name: "James O'Connor", id: "P-1027", age: 45, condition: "Post-op Recovery", risk: "low" as const, lastSeen: "5 hr ago" },
-    { name: "Priya Shah", id: "P-1028", age: 29, condition: "Asthma Monitor", risk: "low" as const, lastSeen: "Yesterday" },
-  ];
+  const [patients, setPatients] = useState<any[]>([]);
+  const [isLoading, setIsLoading] = useState(true);
+
+  useEffect(() => {
+    const fetchPatients = async () => {
+      try {
+        const data = await BackendAPI.getAssignedPatients();
+        // Map backend patient data to UI shape
+        const mappedPatients = data.map(p => ({
+          name: p.name,
+          id: p.id.toUpperCase().slice(0, 8),
+          age: p.age || 45,
+          condition: p.riskStatus || "Stable",
+          risk: (p.riskStatus?.toLowerCase() === 'critical' ? 'high' : 
+                 p.riskStatus?.toLowerCase() === 'watch' ? 'medium' : 'low') as any,
+          lastSeen: p.lastVisit ? new Date(p.lastVisit).toLocaleDateString() : "Just now"
+        }));
+        setPatients(mappedPatients);
+      } catch (err) {
+        console.error("Failed to fetch patients:", err);
+      } finally {
+        setIsLoading(false);
+      }
+    };
+
+    fetchPatients();
+  }, []);
 
   const stats = [
     { label: "Active Patients", value: 124, icon: Users, color: "text-primary" },

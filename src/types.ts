@@ -18,6 +18,12 @@ export interface User {
   role: UserRole;
   profilePicUrl?: string;
   isBlocked?: boolean; // New field for admin control
+  
+  // Emergency Health Passport fields
+  bloodGroup?: string;
+  allergies?: string;
+  currentCondition?: string;
+  emergencyContact?: string;
 }
 
 export interface DaySchedule {

@@ -247,6 +247,10 @@ export const BackendAPI = {
     return result;
   },
 
+  async getCurrentUser(): Promise<any> {
+    return api<any>('/auth/me');
+  },
+
   async login(email: string, password: string): Promise<LoginResponse> {
     const result = await api<LoginResponse>('/auth/login', {
       method: 'POST',
@@ -257,9 +261,6 @@ export const BackendAPI = {
     return result;
   },
 
-  async getCurrentUser(): Promise<LoginResponseUser> {
-    return api<LoginResponseUser>('/auth/me', { method: 'GET' });
-  },
 
   async updateProfilePic(profilePicUrl: string): Promise<LoginResponseUser> {
     return api<LoginResponseUser>('/auth/profile-pic', {
@@ -268,8 +269,28 @@ export const BackendAPI = {
     });
   },
 
+  async getEmergencyInfo(id: string): Promise<any> {
+    return api<any>(`/emergency/${id}`, { method: 'GET' });
+  },
+
+  async updateEmergencyInfo(input: {
+    bloodGroup?: string;
+    allergies?: string;
+    currentCondition?: string;
+    emergencyContact?: string;
+  }): Promise<{ ok: boolean; message: string }> {
+    return api<{ ok: boolean; message: string }>('/profile/emergency', {
+      method: 'PATCH',
+      body: JSON.stringify(input),
+    });
+  },
+
   async getDoctors(): Promise<BackendDoctor[]> {
     return api<BackendDoctor[]>('/doctors', { method: 'GET' });
+  },
+
+  async getAssignedPatients(): Promise<any[]> {
+    return api<any[]>('/doctor/patients', { method: 'GET' });
   },
 
   async updateDoctorStatus(input: { doctorId: string; status: DoctorStatus }): Promise<BackendDoctor> {
@@ -278,6 +299,14 @@ export const BackendAPI = {
       method: 'PATCH',
       body: JSON.stringify({ status }),
     });
+  },
+
+  async getAdminStats(): Promise<any> {
+    return api<any>('/admin/stats');
+  },
+
+  async getAdminUsers(): Promise<any[]> {
+    return api<any[]>('/admin/users');
   },
 
   async updateDoctorProfile(input: {

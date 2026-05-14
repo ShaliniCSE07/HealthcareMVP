@@ -67,8 +67,8 @@ export const AdminDashboard: React.FC = () => {
 
     const refreshData = async () => {
         const [s, u, a, l, c, mockDoctors, docs, al, backendDoctors] = await Promise.all([
-            MockBackend.getAdminStats(),
-            MockBackend.getAllUsers(),
+            BackendAPI.getAdminStats().catch(() => MockBackend.getAdminStats()),
+            BackendAPI.getAdminUsers().catch(() => MockBackend.getAllUsers()),
             BackendAPI.getAppointments(),
             MockBackend.getAuditLogs(),
             MockBackend.getSystemConfig(),

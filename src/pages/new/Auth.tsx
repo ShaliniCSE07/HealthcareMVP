@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Link, useNavigate } from "react-router-dom";
+import { Link, useNavigate, Navigate } from "react-router-dom";
 import { motion } from "framer-motion";
 import { Mail, Lock, User, Heart, Github, ArrowRight, Loader2 } from "lucide-react";
 import { NeonInput } from "@/components/carex/NeonInput";
@@ -9,8 +9,16 @@ import { ParticleField } from "@/components/carex/ParticleField";
 import { AIOrb } from "@/components/carex/AIOrb";
 import { BackendAPI } from "@/services/apiClient";
 import { useHealth } from "@/services/HealthContext";
-import { UserRole } from "@/types";
+import { UserRole, DoctorStatus } from "@/types";
 import { toast } from "sonner";
+
+const fileToDataUrl = (file: File): Promise<string> =>
+  new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(String(reader.result || ""));
+    reader.onerror = () => reject(new Error("Failed to read verification document"));
+    reader.readAsDataURL(file);
+  });
 
 const Auth = ({ mode = "login" as "login" | "signup" }) => {
   const [tab, setTab] = useState(mode);
@@ -18,8 +26,21 @@ const Auth = ({ mode = "login" as "login" | "signup" }) => {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [name, setName] = useState("");
+  const [role, setRole] = useState<UserRole>(UserRole.PATIENT);
+  
+  // Doctor specific fields
+  const [specialization, setSpecialization] = useState("");
+  const [registrationNumber, setRegistrationNumber] = useState("");
+  const [experienceYears, setExperienceYears] = useState("");
+  const [certificateFile, setCertificateFile] = useState<File | null>(null);
+
   const navigate = useNavigate();
-  const { setUser } = useHealth();
+  const { user: currentUser, setUser } = useHealth();
+
+  // Redirect if already logged in
+  if (currentUser) {
+    return <Navigate to="/dashboard" replace />;
+  }
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -32,18 +53,46 @@ const Auth = ({ mode = "login" as "login" | "signup" }) => {
         toast.success(`Welcome back, ${res.user.name}`);
         navigate("/dashboard");
       } else {
-        const res = await BackendAPI.register({
+        let registrationData: any = {
           name,
           email,
           password,
-          role: UserRole.PATIENT // Default for new users in this UI
-        });
-        setUser(res.user as any);
-        toast.success(`Account created successfully!`);
-        navigate("/dashboard");
+          role,
+        };
+
+        if (role === UserRole.DOCTOR) {
+          if (!registrationNumber || !certificateFile) {
+            toast.error("Registration number and certificate are required for doctors");
+            setIsLoading(false);
+            return;
+          }
+          
+          const verificationDocumentUrl = await fileToDataUrl(certificateFile);
+          registrationData = {
+            ...registrationData,
+            specialization,
+            registrationNumber,
+            experienceYears: parseInt(experienceYears) || 0,
+            verificationDocumentUrl,
+            verificationDocumentName: certificateFile.name,
+          };
+        }
+
+        const res = await BackendAPI.register(registrationData);
+        
+        if (role === UserRole.DOCTOR) {
+          toast.success("Registration submitted! Admin approval is required.");
+          setTab("login");
+          // Clear sensitive fields
+          setPassword("");
+        } else {
+          setUser(res.user as any);
+          toast.success(`Account created successfully!`);
+          navigate("/dashboard");
+        }
       }
     } catch (err: any) {
-      toast.error(err.message || "Authentication failed");
+      toast.error(err.error || err.message || "Authentication failed");
     } finally {
       setIsLoading(false);
     }
@@ -106,14 +155,73 @@ const Auth = ({ mode = "login" as "login" | "signup" }) => {
             className="space-y-4"
           >
             {tab === "signup" && (
-              <NeonInput 
-                label="Full Name" 
-                icon={<User className="h-4 w-4" />} 
-                placeholder="Dr. Jane Doe" 
-                value={name}
-                onChange={(e) => setName(e.target.value)}
-                required
-              />
+              <>
+                <div className="flex gap-2 p-1 glass rounded-xl mb-4">
+                  <button
+                    type="button"
+                    onClick={() => setRole(UserRole.PATIENT)}
+                    className={`flex-1 py-2 rounded-lg text-xs font-bold transition-all ${role === UserRole.PATIENT ? "bg-primary text-primary-foreground shadow-glow" : "text-muted-foreground hover:bg-white/5"}`}
+                  >
+                    Patient
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setRole(UserRole.DOCTOR)}
+                    className={`flex-1 py-2 rounded-lg text-xs font-bold transition-all ${role === UserRole.DOCTOR ? "bg-primary text-primary-foreground shadow-glow" : "text-muted-foreground hover:bg-white/5"}`}
+                  >
+                    Doctor
+                  </button>
+                </div>
+
+                <NeonInput 
+                  label="Full Name" 
+                  icon={<User className="h-4 w-4" />} 
+                  placeholder={role === UserRole.DOCTOR ? "Dr. Jane Doe" : "Jane Doe"} 
+                  value={name}
+                  onChange={(e) => setName(e.target.value)}
+                  required
+                />
+
+                {role === UserRole.DOCTOR && (
+                  <motion.div 
+                    initial={{ opacity: 0, height: 0 }}
+                    animate={{ opacity: 1, height: "auto" }}
+                    className="space-y-4"
+                  >
+                    <NeonInput 
+                      label="Specialization" 
+                      placeholder="e.g. Cardiology" 
+                      value={specialization}
+                      onChange={(e) => setSpecialization(e.target.value)}
+                      required
+                    />
+                    <NeonInput 
+                      label="Registration Number" 
+                      placeholder="Medical license number" 
+                      value={registrationNumber}
+                      onChange={(e) => setRegistrationNumber(e.target.value)}
+                      required
+                    />
+                    <NeonInput 
+                      label="Years of Experience" 
+                      type="number"
+                      placeholder="e.g. 10" 
+                      value={experienceYears}
+                      onChange={(e) => setExperienceYears(e.target.value)}
+                    />
+                    <div className="space-y-2">
+                      <label className="text-sm font-medium text-muted-foreground">Medical Certificate</label>
+                      <input 
+                        type="file" 
+                        accept=".pdf,image/*"
+                        onChange={(e) => setCertificateFile(e.target.files?.[0] || null)}
+                        className="w-full text-xs text-muted-foreground file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-xs file:font-semibold file:bg-primary/10 file:text-primary hover:file:bg-primary/20 transition-all"
+                        required
+                      />
+                    </div>
+                  </motion.div>
+                )}
+              </>
             )}
             <NeonInput 
               label="Email" 

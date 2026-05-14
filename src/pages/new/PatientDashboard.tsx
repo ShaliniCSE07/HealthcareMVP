@@ -1,3 +1,4 @@
+import React, { useState } from "react";
 import { motion } from "framer-motion";
 import { Heart, Activity, Droplets, Brain, ArrowUpRight, Calendar, Pill, FileText } from "lucide-react";
 import { AppLayout } from "@/components/carex/AppLayout";
@@ -222,8 +223,199 @@ const PatientDashboard = () => {
             ))}
           </ul>
         </GlassCard>
+
+        {/* Universal Health Passport (QR) Section */}
+        <HealthQRSection user={user} />
       </div>
     </AppLayout>
+  );
+};
+
+// --- Sub-component for Health QR ---
+import { QRCodeSVG } from 'qrcode.react';
+import { QrCode, Download, Edit3, Save, X, Phone as PhoneIcon, ShieldAlert as ShieldIcon } from 'lucide-react';
+import { BackendAPI } from "@/services/apiClient";
+import { toast } from "sonner";
+
+const HealthQRSection = ({ user }: { user: any }) => {
+  const [showEdit, setShowEdit] = useState(false);
+  const [formData, setFormData] = useState({
+    bloodGroup: user?.bloodGroup || '',
+    allergies: user?.allergies || '',
+    currentCondition: user?.currentCondition || '',
+    emergencyContact: user?.emergencyContact || ''
+  });
+  const [isSaving, setIsSaving] = useState(false);
+
+  const emergencyUrl = `${window.location.origin}/emergency/${user?.id}`;
+
+  const handleDownloadQR = () => {
+    const svg = document.getElementById('health-qr-code');
+    if (!svg) return;
+    const svgData = new XMLSerializer().serializeToString(svg);
+    const canvas = document.createElement('canvas');
+    const ctx = canvas.getContext('2d');
+    const img = new Image();
+    img.onload = () => {
+      canvas.width = img.width;
+      canvas.height = img.height;
+      ctx?.drawImage(img, 0, 0);
+      const pngFile = canvas.toDataURL('image/png');
+      const downloadLink = document.createElement('a');
+      downloadLink.download = `HealthQR_${user?.name.replace(/\s+/g, '_')}.png`;
+      downloadLink.href = pngFile;
+      downloadLink.click();
+    };
+    img.src = 'data:image/svg+xml;base64,' + btoa(svgData);
+  };
+
+  const handleSave = async () => {
+    try {
+      setIsSaving(true);
+      await BackendAPI.updateEmergencyInfo(formData);
+      toast.success("Emergency information updated successfully");
+      setShowEdit(false);
+      // Update local state if needed (or refresh data)
+    } catch (err) {
+      toast.error("Failed to update emergency information");
+    } finally {
+      setIsSaving(false);
+    }
+  };
+
+  return (
+    <GlassCard className="p-6 lg:col-span-3 border-primary/20 overflow-hidden relative">
+      <div className="absolute top-0 right-0 w-64 h-64 bg-primary/5 rounded-full -mr-32 -mt-32 blur-3xl pointer-events-none" />
+      
+      <div className="flex flex-col md:flex-row items-start gap-8 relative z-10">
+        {/* QR Display */}
+        <div className="flex flex-col items-center gap-4 bg-white p-4 rounded-3xl shadow-glow-primary">
+          <div className="p-2 bg-slate-50 rounded-2xl border border-slate-100">
+            <QRCodeSVG 
+              id="health-qr-code"
+              value={emergencyUrl}
+              size={180}
+              level="H"
+              includeMargin={true}
+              imageSettings={{
+                src: "/favicon.svg",
+                x: undefined,
+                y: undefined,
+                height: 40,
+                width: 40,
+                excavate: true,
+              }}
+            />
+          </div>
+          <div className="text-center">
+            <p className="text-xs font-bold text-slate-900 uppercase tracking-widest mb-1">Scan in Emergency</p>
+            <p className="text-[10px] text-slate-500 font-mono">{user?.id?.toUpperCase().slice(0, 12)}</p>
+          </div>
+          <NeonButton variant="outline" size="sm" className="w-full text-slate-900 border-slate-200" onClick={handleDownloadQR}>
+            <Download className="h-3.5 w-3.5 mr-2" /> Download
+          </NeonButton>
+        </div>
+
+        {/* Info & Edit Section */}
+        <div className="flex-1 w-full">
+          <div className="flex items-center justify-between mb-6">
+            <div className="flex items-center gap-3">
+              <div className="h-10 w-10 rounded-xl bg-primary/10 flex items-center justify-center border border-primary/20">
+                <QrCode className="h-5 w-5 text-primary" />
+              </div>
+              <div>
+                <h3 className="font-display font-semibold text-xl">Universal Health Passport</h3>
+                <p className="text-sm text-muted-foreground">Emergency responders can access critical info by scanning.</p>
+              </div>
+            </div>
+            {!showEdit && (
+              <button 
+                onClick={() => setShowEdit(true)}
+                className="p-2 hover:bg-primary/10 rounded-lg text-primary transition-colors"
+              >
+                <Edit3 className="h-5 w-5" />
+              </button>
+            )}
+          </div>
+
+          {showEdit ? (
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div className="space-y-2">
+                <label className="text-xs font-bold text-muted-foreground uppercase tracking-wider">Blood Group</label>
+                <input 
+                  className="w-full bg-background/50 border border-border rounded-xl px-4 py-2 focus:ring-2 focus:ring-primary outline-none"
+                  value={formData.bloodGroup}
+                  onChange={e => setFormData({...formData, bloodGroup: e.target.value})}
+                  placeholder="e.g. O+, A-"
+                />
+              </div>
+              <div className="space-y-2">
+                <label className="text-xs font-bold text-muted-foreground uppercase tracking-wider">Emergency Contact (Name:Phone)</label>
+                <input 
+                  className="w-full bg-background/50 border border-border rounded-xl px-4 py-2 focus:ring-2 focus:ring-primary outline-none"
+                  value={formData.emergencyContact}
+                  onChange={e => setFormData({...formData, emergencyContact: e.target.value})}
+                  placeholder="e.g. John Doe: +1234567890"
+                />
+              </div>
+              <div className="space-y-2 md:col-span-2">
+                <label className="text-xs font-bold text-muted-foreground uppercase tracking-wider">Allergies (comma separated)</label>
+                <input 
+                  className="w-full bg-background/50 border border-border rounded-xl px-4 py-2 focus:ring-2 focus:ring-primary outline-none"
+                  value={formData.allergies}
+                  onChange={e => setFormData({...formData, allergies: e.target.value})}
+                  placeholder="e.g. Peanuts, Penicillin, Latex"
+                />
+              </div>
+              <div className="space-y-2 md:col-span-2">
+                <label className="text-xs font-bold text-muted-foreground uppercase tracking-wider">Chronic Conditions</label>
+                <textarea 
+                  className="w-full bg-background/50 border border-border rounded-xl px-4 py-2 focus:ring-2 focus:ring-primary outline-none h-20 resize-none"
+                  value={formData.currentCondition}
+                  onChange={e => setFormData({...formData, currentCondition: e.target.value})}
+                  placeholder="e.g. Diabetes Type 2, Hypertension"
+                />
+              </div>
+              <div className="md:col-span-2 flex justify-end gap-3 mt-2">
+                <NeonButton variant="ghost" size="sm" onClick={() => setShowEdit(false)}>
+                  <X className="h-4 w-4 mr-2" /> Cancel
+                </NeonButton>
+                <NeonButton size="sm" onClick={handleSave} isLoading={isSaving}>
+                  <Save className="h-4 w-4 mr-2" /> Save Passport Info
+                </NeonButton>
+              </div>
+            </div>
+          ) : (
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              <div className="p-4 rounded-2xl bg-primary/5 border border-primary/10">
+                <div className="flex items-center gap-2 mb-1">
+                  <Droplets className="h-3.5 w-3.5 text-primary" />
+                  <span className="text-[10px] font-bold text-muted-foreground uppercase tracking-wider">Blood Group</span>
+                </div>
+                <p className="text-2xl font-black text-primary">{formData.bloodGroup || 'Not Set'}</p>
+              </div>
+              <div className="p-4 rounded-2xl bg-success/5 border border-success/10">
+                <div className="flex items-center gap-2 mb-1">
+                  <PhoneIcon className="h-3.5 w-3.5 text-success" />
+                  <span className="text-[10px] font-bold text-muted-foreground uppercase tracking-wider">Emergency Contact</span>
+                </div>
+                <p className="font-bold text-success truncate">{formData.emergencyContact || 'Not Configured'}</p>
+              </div>
+              <div className="p-4 rounded-2xl bg-destructive/5 border border-destructive/10 sm:col-span-2">
+                <div className="flex items-center gap-2 mb-1">
+                  <ShieldIcon className="h-3.5 w-3.5 text-destructive" />
+                  <span className="text-[10px] font-bold text-muted-foreground uppercase tracking-wider">Allergies & Critical Info</span>
+                </div>
+                <p className="text-sm text-foreground/80 line-clamp-2">
+                  {formData.allergies ? `Allergies: ${formData.allergies}` : 'No allergies reported.'}
+                  {formData.currentCondition ? ` · ${formData.currentCondition}` : ''}
+                </p>
+              </div>
+            </div>
+          )}
+        </div>
+      </div>
+    </GlassCard>
   );
 };
 
