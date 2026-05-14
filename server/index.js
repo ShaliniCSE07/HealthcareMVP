@@ -32,7 +32,7 @@ const parseAllowedOrigins = (rawValue) => {
 };
 
 const ALLOWED_ORIGINS = parseAllowedOrigins(process.env.ALLOWED_ORIGINS);
-const DEV_LOCAL_ORIGIN_REGEX = /^https?:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/i;
+const DEV_LOCAL_ORIGIN_REGEX = /^https?:\/\/(localhost|127\.0\.0\.1|192\.168\.\d+\.\d+|10\.\d+\.\d+|172\.(1[6-9]|2\d|3[0-1])\.\d+\.\d+)(:\d+)?$/i;
 const isOriginAllowed = (origin) => {
   if (!origin) return true;
   if (process.env.NODE_ENV !== 'production' && DEV_LOCAL_ORIGIN_REGEX.test(origin)) return true;
@@ -347,7 +347,11 @@ const ensureOwnerAdminUser = async () => {
     create: { name: 'Owner Admin', email: OWNER_ADMIN_EMAIL, role: 'ADMIN', passwordHash },
   });
 
-  console.log('Owner admin ensured:', OWNER_ADMIN_EMAIL);
+  console.log('Neural Link: Administrator account synchronized.');
+  console.log('--------------------------------------------------');
+  console.log('Admin Email:', OWNER_ADMIN_EMAIL);
+  console.log('Admin Password:', OWNER_ADMIN_PASSWORD || 'Admin@123 (Default)');
+  console.log('--------------------------------------------------');
 };
 
 const clearAllNonAdminData = async () => {
@@ -446,7 +450,7 @@ app.post('/auth/register', async (req, res) => {
   try {
     const {
       name,
-      email,
+      email: rawEmail,
       password,
       role,
       specialization,
@@ -457,12 +461,16 @@ app.post('/auth/register', async (req, res) => {
       verificationDocumentUrl,
       verificationDocumentName,
     } = req.body || {};
+    
+    const email = String(rawEmail || '').trim().toLowerCase();
 
     if (!name || !email || !password || !role) {
+      console.log(`[Auth] Registration failed: Missing fields (name=${!!name}, email=${!!email}, role=${role})`);
       return res.status(400).json({ error: 'Missing required fields' });
     }
 
     if (role !== 'PATIENT' && role !== 'DOCTOR') {
+      console.log(`[Auth] Registration failed: Invalid role ${role}`);
       return res.status(400).json({ error: 'Only patient and doctor self-registration is allowed' });
     }
 
@@ -488,8 +496,8 @@ app.post('/auth/register', async (req, res) => {
       if (!/^data:|^https?:\/\//i.test(cleanDocUrl)) {
         return res.status(400).json({ error: 'Invalid certificate document format' });
       }
-      if (cleanDocUrl.length > 10 * 1024 * 1024) {
-        return res.status(400).json({ error: 'Uploaded certificate is too large' });
+      if (cleanDocUrl.length > 20 * 1024 * 1024) {
+        return res.status(400).json({ error: 'Uploaded certificate is too large (max 20MB)' });
       }
 
       data.specialization = specialization || null;
@@ -534,11 +542,21 @@ app.post('/auth/register', async (req, res) => {
 });
 
 app.post('/auth/login', async (req, res) => {
-  const { email, password } = req.body;
+  const { email: rawEmail, password } = req.body;
+  const email = String(rawEmail || '').trim().toLowerCase();
+  console.log(`[Auth] Login attempt for: ${email}`);
+  
   const user = await prisma.user.findUnique({ where: { email } });
-  if (!user) return res.status(401).json({ error: 'Invalid credentials' });
+  if (!user) {
+    console.log(`[Auth] Login failed: User not found (${email})`);
+    return res.status(401).json({ error: 'Invalid credentials' });
+  }
+  
   const ok = await bcrypt.compare(password, user.passwordHash);
-  if (!ok) return res.status(401).json({ error: 'Invalid credentials' });
+  if (!ok) {
+    console.log(`[Auth] Login failed: Password mismatch for ${email}`);
+    return res.status(401).json({ error: 'Invalid credentials' });
+  }
   // Lock admin access to the single owner account only
   if (user.role === 'ADMIN' && user.email !== OWNER_ADMIN_EMAIL) {
     return res.status(403).json({ error: 'Admin access is restricted to the owner account.' });
@@ -1548,6 +1566,60 @@ app.post('/metrics', authMiddleware, async (req, res) => {
   res.status(201).json({ ok: true });
 });
 
+// --- EMERGENCY HEALTH PASSPORT ENDPOINTS ---
+
+// Public-ish endpoint for emergency scanning (ID-based)
+app.get('/emergency/:id', async (req, res) => {
+  const { id } = req.params;
+  try {
+    const user = await prisma.user.findUnique({
+      where: { id },
+      select: {
+        id: true,
+        name: true,
+        bloodGroup: true,
+        allergies: true,
+        currentCondition: true,
+        emergencyContact: true,
+        profilePicUrl: true,
+      }
+    });
+
+    if (!user) {
+      return res.status(404).json({ error: 'Health Passport not found' });
+    }
+
+    // Return only critical information
+    res.json(user);
+  } catch (err) {
+    console.error('Error fetching emergency info', err);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+// Private endpoint for patients to update their emergency info
+app.patch('/profile/emergency', authMiddleware, async (req, res) => {
+  const { id } = req.user;
+  const { bloodGroup, allergies, currentCondition, emergencyContact } = req.body;
+
+  try {
+    await prisma.user.update({
+      where: { id },
+      data: {
+        bloodGroup: bloodGroup || null,
+        allergies: allergies || null,
+        currentCondition: currentCondition || null,
+        emergencyContact: emergencyContact || null,
+      },
+    });
+
+    res.json({ ok: true, message: 'Emergency information updated successfully' });
+  } catch (err) {
+    console.error('Error updating emergency info', err);
+    res.status(500).json({ error: 'Failed to update emergency information' });
+  }
+});
+
 // --- AI health risk prediction using local Python models ---
 app.post('/ai/health-risk', authMiddleware, async (req, res) => {
   const { role } = req.user;
@@ -2492,6 +2564,44 @@ app.patch('/admin/doctors/:id/status', authMiddleware, async (req, res) => {
     console.error('Error updating doctor status', err);
     return res.status(500).json({ error: 'Failed to update doctor status' });
   }
+});
+
+// Admin stats for dashboard
+app.get('/admin/stats', authMiddleware, async (req, res) => {
+  if (req.user.role !== 'ADMIN') return res.status(403).json({ error: 'Admin access required' });
+
+  const [totalUsers, pendingDocs, totalAppts] = await Promise.all([
+    prisma.user.count(),
+    prisma.user.count({ where: { role: 'DOCTOR', doctorStatus: 'PENDING' } }),
+    prisma.appointment.count()
+  ]);
+
+  res.json({
+    totalUsers,
+    pendingVerifications: pendingDocs,
+    totalAppointments: totalAppts,
+    systemHealth: 'OPTIMAL',
+    uptime: process.uptime()
+  });
+});
+
+// Admin user list
+app.get('/admin/users', authMiddleware, async (req, res) => {
+  if (req.user.role !== 'ADMIN') return res.status(403).json({ error: 'Admin access required' });
+
+  const users = await prisma.user.findMany({
+    orderBy: { createdAt: 'desc' }
+  });
+
+  res.json(users.map(u => ({
+    id: u.id,
+    name: u.name,
+    email: u.email,
+    role: u.role,
+    status: u.doctorStatus,
+    isBlocked: false, // For now
+    createdAt: u.createdAt
+  })));
 });
 
 // --- Agora token generation endpoint ---
